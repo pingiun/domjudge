@@ -1291,9 +1291,8 @@ class JudgehostController extends AbstractFOSRestController
     private function getSourceFiles(string $id) {
         $queryBuilder = $this->em->createQueryBuilder()
             ->from(SubmissionFile::class, 'f')
-            ->join('f.submission', 's')
-            ->select('f, s')
-            ->andWhere('s.submitid = :submitid')
+            ->select('f')
+            ->andWhere('f.submission = :submitid')
             ->setParameter(':submitid', $id)
             ->orderBy('f.rank');
 
@@ -1317,9 +1316,8 @@ class JudgehostController extends AbstractFOSRestController
     private function getExecutableFiles(string $id) {
         $queryBuilder = $this->em->createQueryBuilder()
             ->from(ExecutableFile::class, 'f')
-            ->join('f.immutableExecutable', 'e')
-            ->select('f, e')
-            ->andWhere('e.immutable_execid = :immutable_execid')
+            ->select('f')
+            ->andWhere('f.immutableExecutable = :immutable_execid')
             ->setParameter(':immutable_execid', $id)
             ->orderBy('f.rank');
 
@@ -1340,5 +1338,4 @@ class JudgehostController extends AbstractFOSRestController
         }
         return $result;
     }
-
 }
