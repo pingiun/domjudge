@@ -179,7 +179,7 @@ class Judging extends BaseApiEntity implements ExternalRelationshipEntityInterfa
      * @var string
      * @ORM\Column(type="string", name="judgehost", length=64,
      *     options={"comment"="Judgehost that performed the judging"},
-     *     nullable=false)
+     *     nullable=true)
      * @Serializer\Expose(if="context.getAttribute('domjudge_service').checkrole('jury')")
      * @Serializer\SerializedName("judgehost")
      */
@@ -205,6 +205,7 @@ class Judging extends BaseApiEntity implements ExternalRelationshipEntityInterfa
      * @Serializer\Exclude()
      */
     private $judgehost;
+
     /**
      * rejudgings have one parent judging
      * @ORM\ManyToOne(targetEntity="Rejudging", inversedBy="judgings")
