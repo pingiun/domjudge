@@ -56,6 +56,15 @@ class JudgingRun extends BaseApiEntity
     private $testcaseid;
 
     /**
+     * @var int
+     * @ORM\Column(type="integer", name="judgetaskid", length=4,
+     *     options={"comment"="JudgeTask ID","unsigned"=true},
+     *     nullable=false)
+     * @Serializer\Exclude()
+     */
+    private $judgetaskid;
+
+    /**
      * @var string
      * @ORM\Column(type="string", name="runresult", length=32,
      *     options={"comment"="Result of this run, NULL if not finished yet",
@@ -108,6 +117,13 @@ class JudgingRun extends BaseApiEntity
      * @Serializer\Exclude()
      */
     private $output;
+
+    /**
+     * @ORM\ManyToOne(targetEntity="JudgeTask")
+     * @ORM\JoinColumn(name="judgetaskid", referencedColumnName="judgetaskid")
+     * @Serializer\Exclude()
+     */
+    private $judgetask;
 
     public function __construct()
     {
@@ -170,6 +186,23 @@ class JudgingRun extends BaseApiEntity
     public function getTestcaseid()
     {
         return $this->testcaseid;
+    }
+
+    public function setJudgeTaskId(int $judgetaskid): JudgingRun
+    {
+        $this->judgetaskid = $judgetaskid;
+        return $this;
+    }
+
+    public function getJudgeTaskId(): int
+    {
+        return $this->judgetaskid;
+    }
+
+    public function setJudgeTask(JudgeTask $judgeTask): JudgingRun
+    {
+        $this->judgetask = $judgeTask;
+        return $this;
     }
 
     /**
