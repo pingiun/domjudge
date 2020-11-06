@@ -1405,20 +1405,17 @@ class JudgehostController extends AbstractFOSRestController
         // TODO: We probably want to introduce a jobid instead of using submitid below in all queries. For judgings it
         // should default to the judgingid.
         // TODO: These queries would be much easier and less heavy on the DB with an extra table.
-        $result = $this->em
-            ->createQueryBuilder()
-            ->from(JudgeTask::class, 'jt')
-            ->select('jt.submitid')
-            ->andWhere('jt.hostname = :hostname')
-            ->setParameter(':hostname', $hostname)
-            ->groupBy('jt.submitid')
-            ->getQuery()
-            ->getArrayResult();
-        // TODO: Is there no simpler way to get a column with doctrine?
-        $started_judgetaskids = [];
-        foreach ($result as $row) {
-            $started_judgetaskids[] = $row['submitid'];
-        }
+        $started_judgetaskids = array_column(
+            $this->em
+                ->createQueryBuilder()
+                ->from(JudgeTask::class, 'jt')
+                ->select('jt.submitid')
+                ->andWhere('jt.hostname = :hostname')
+                ->setParameter(':hostname', $hostname)
+                ->groupBy('jt.submitid')
+                ->getQuery()
+                ->getArrayResult(),
+            'submitid');
         if (!empty($started_judgetaskids)) {
             $queryBuilder = $this->em->createQueryBuilder();
             /** @var JudgeTask[] $judgetasks */
@@ -1478,19 +1475,16 @@ class JudgehostController extends AbstractFOSRestController
         // This is case 2.b) from above: start something new.
         // TODO: First, we have to filter for unfinished jobs. This would be easier with a separate table storing the
         // job state.
-        $result = $this->em
-            ->createQueryBuilder()
-            ->from(JudgeTask::class, 'jt')
-            ->select('jt.submitid')
-            ->andWhere('jt.hostname IS NOT NULL')
-            ->groupBy('jt.submitid')
-            ->getQuery()
-            ->getArrayResult();
-        // TODO: Is there no simpler way to get a column with doctrine?
-        $started_judgetaskids = [];
-        foreach ($result as $row) {
-            $started_judgetaskids[] = $row['submitid'];
-        }
+        $started_judgetaskids = array_column(
+            $this->em
+                ->createQueryBuilder()
+                ->from(JudgeTask::class, 'jt')
+                ->select('jt.submitid')
+                ->andWhere('jt.hostname IS NOT NULL')
+                ->groupBy('jt.submitid')
+                ->getQuery()
+                ->getArrayResult(),
+            'submitid');
         $queryBuilder = $this->em->createQueryBuilder();
         $queryBuilder
             ->from(JudgeTask::class, 'jt')
@@ -1571,19 +1565,16 @@ class JudgehostController extends AbstractFOSRestController
 
         // A bit unlucky, we only got partially the assigned work, so query what was assigned to us.
         $queryBuilder = $this->em->createQueryBuilder();
-        $result = $queryBuilder
-            ->from(JudgeTask::class, 'jt')
-            ->select('jt.judgetaskid')
-            ->andWhere('jt.hostname = :hostname')
-            ->setParameter(':hostname', $hostname)
-            ->andWhere($queryBuilder->expr()->In('jt.judgetaskid', $judgetaskids))
-            ->getQuery()
-            ->getArrayResult();
-        // TODO: Is there no simpler way to get a column with doctrine?
-        $partialJudgeTaskIds = [];
-        foreach ($result as $row) {
-            $partialJudgeTaskIds[] = $row['judgetaskid'];
-        }
+        $partialJudgeTaskIds = array_column(
+            $queryBuilder
+                ->from(JudgeTask::class, 'jt')
+                ->select('jt.judgetaskid')
+                ->andWhere('jt.hostname = :hostname')
+                ->setParameter(':hostname', $hostname)
+                ->andWhere($queryBuilder->expr()->In('jt.judgetaskid', $judgetaskids))
+                ->getQuery()
+                ->getArrayResult(),
+            'judgetaskid');
 
         $partialJudgeTasks = [];
         foreach ($judgeTasks as $judgeTask) {
