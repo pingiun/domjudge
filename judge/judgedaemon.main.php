@@ -681,7 +681,9 @@ while (true) {
     // Make sure the workdir is accessible for the domjudge-run user.
     // Will be revoked again after this run finished.
     foreach ($row as $judgetask) {
-        judge($judgetask);
+        if (!judge($judgetask)) {
+            break;
+        }
     }
 
     // TODO: Perhaps wait until we are sure this was the last batch with the same jobid.
@@ -889,13 +891,6 @@ function compile(array $judgeTask, string $workdir, string $workdirpath, array $
         return false;
     }
 
-    // // create chroot environment
-    // logmsg(LOG_INFO, "Executing chroot script: '".CHROOT_SCRIPT." start'");
-    // system(LIBJUDGEDIR.'/'.CHROOT_SCRIPT.' start', $retval);
-    // if ($retval!=0) {
-    //     error("chroot script exited with exitcode $retval");
-    // }
-
     // Compile the program.
     system(LIBJUDGEDIR . "/compile.sh $cpuset_opt '$execrunpath' '$workdir' " .
         implode(' ', $files), $retval);
@@ -927,7 +922,6 @@ function compile(array $judgeTask, string $workdir, string $workdirpath, array $
         }
         logmsg(LOG_ERR, $description);
 
-        cleanup_judging($workdir);
         return false;
     }
     logmsg(LOG_INFO, "  💻 Compilation: '".$EXITCODES[$retval]."'");
@@ -940,7 +934,6 @@ function compile(array $judgeTask, string $workdir, string $workdirpath, array $
         // TODO: We need to change internal error to "disable the compile script" instead.
         // disable('language', 'langid', $row['langid'], $description, $row['judgingid'], (string)$row['cid'], $compile_output);
 
-        cleanup_judging($workdir);
         return false;
     }
     $compile_success = ($EXITCODES[$retval]==='correct');
@@ -952,14 +945,11 @@ function compile(array $judgeTask, string $workdir, string $workdirpath, array $
         $args .= '&entry_point=' . urlencode($metadata['entry_point']);
     }
 
-
-    // TODO: actually report back compilation result
-    // $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($myhost), urlencode((string)$row['judgingid']));
-    // request($url, 'PUT', $args);
+    $url = sprintf('judgehosts/update-judging/%s/%s', urlencode($myhost), urlencode((string)$judgeTask['judgetaskid']));
+    request($url, 'PUT', $args);
 
     // compile error: our job here is done
     if (! $compile_success) {
-        cleanup_judging($workdir);
         //logmsg(LOG_NOTICE, "Judging s$row[submitid]/j$row[judgingid]: compile error");
         // TODO: Signal back so that we don't keep compiling!
         return false;
@@ -970,7 +960,7 @@ function compile(array $judgeTask, string $workdir, string $workdirpath, array $
     return true;
 }
 
-function judge(array $judgeTask)
+function judge(array $judgeTask): bool
 {
     global $EXITCODES, $myhost, $options, $workdirpath, $exitsignalled, $gracefulexitsignalled, $endpointID;
 
@@ -1008,7 +998,7 @@ function judge(array $judgeTask)
     $workdir = judging_directory($workdirpath, $judgeTask);
     $compile_success = compile($judgeTask, $workdir, $workdirpath, $compile_config, $cpuset_opt, $output_storage_limit);
     if (!$compile_success) {
-        return;
+        return false;
     }
 
     // TODO: How do we plan to handle these?
@@ -1077,7 +1067,7 @@ function judge(array $judgeTask)
     $tcfile = fetchTestcase($workdirpath, $judgeTask['testcase_id']);
     if ($tcfile === NULL) {
         // error while fetching testcase
-        return;
+        return true;
     }
 
     // Copy program with all possible additional files to testcase
@@ -1109,7 +1099,7 @@ function judge(array $judgeTask)
         // TODO
         // $description = $row['run'] . ': fetch, compile, or deploy of run script failed.';
         // disable('problem', 'probid', $row['probid'], $description, $row['judgingid'], (string)$row['cid']);
-        return;
+        return false;
     }
 
     if ($combined_run_compare) {
@@ -1126,7 +1116,7 @@ function judge(array $judgeTask)
             // TODO
             // $description = $row['compare'] . ': fetch, compile, or deploy of validation script failed.';
             // disable('problem', 'probid', $row['probid'], $description, $row['judgingid'], (string)$row['cid']);
-            return;
+            return false;
         }
     }
 
@@ -1154,7 +1144,7 @@ function judge(array $judgeTask)
         // TODO
         // logmsg(LOG_ERR, "comparing failed for compare script '" . $row['compare'] . "'");
         // disable('problem', 'probid', $row['probid'], "compare script '" . $row['compare'] . "' crashed", $row['judgingid'], (string)$row['cid']);
-        return;
+        return false;
     }
 
     $lastcase_correct = $result === 'correct';
@@ -1219,6 +1209,7 @@ function judge(array $judgeTask)
     // }
 
     // done!
+    return true;
 }
 
 function fetchTestcase($workdirpath, $testcase_id): array

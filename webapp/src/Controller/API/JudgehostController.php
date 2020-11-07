@@ -491,7 +491,7 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Update the given judging for the given judgehost
-     * @Rest\Put("/update-judging/{hostname}/{judgingId<\d+>}")
+     * @Rest\Put("/update-judging/{hostname}/{judgetaskid}")
      * @IsGranted("ROLE_JUDGEHOST")
      * @SWG\Response(
      *     response="200",
@@ -504,32 +504,37 @@ class JudgehostController extends AbstractFOSRestController
      *     description="The hostname of the judgehost that wants to update the judging"
      * )
      * @SWG\Parameter(
-     *     name="judgingId",
+     *     name="judgetaskid",
      *     in="path",
      *     type="integer",
-     *     description="The ID of the judging to update"
+     *     description="The ID of the judgetask to update"
      * )
-     * @param Request $request
-     * @param string  $hostname
-     * @param int     $judgingId
      * @throws \Doctrine\ORM\NonUniqueResultException
      */
-    public function updateJudgingAction(Request $request, string $hostname, int $judgingId)
+    public function updateJudgingAction(Request $request, string $hostname, int $judgetaskid)
     {
         /** @var Judgehost $judgehost */
         $judgehost = $this->em->getRepository(Judgehost::class)->find($hostname);
         if (!$judgehost) {
+            throw new BadRequestHttpException("Who are you and why are you sending us any data?");
             return;
         }
+
+        $judgingId = $this->em->createQueryBuilder()
+            ->from(JudgingRun::class, 'jr')
+            ->select('jr.judgingid')
+            ->andWhere('jr.judgetaskid = :judgetaskid')
+            ->setParameter(':judgetaskid', $judgetaskid)
+            ->getQuery()
+            ->getSingleScalarResult();
 
         $query = $this->em->createQueryBuilder()
             ->from(Judging::class, 'j')
             ->join('j.submission', 's')
-            ->join('j.judgehost', 'jh')
             ->join('s.contest', 'c')
             ->join('s.team', 't')
             ->join('s.problem', 'p')
-            ->select('j, s, jh, c, t, p')
+            ->select('j, s, c, t, p')
             ->andWhere('j.judgingid = :judgingId')
             ->setParameter(':judgingId', $judgingId)
             ->setMaxResults(1)
@@ -538,6 +543,7 @@ class JudgehostController extends AbstractFOSRestController
         /** @var Judging $judging */
         $judging = $query->getOneOrNullResult();
         if (!$judging) {
+            throw new BadRequestHttpException("We don't know this judging with ID $judgingId.");
             return;
         }
 
@@ -554,28 +560,36 @@ class JudgehostController extends AbstractFOSRestController
 
                     // As EventLogService::log() will clear the entity manager, so the judging has
                     // now become detached. We will have to reload it
+                    /** @var Judging $judging */
                     $judging = $query->getOneOrNullResult();
                 });
             }
 
             if ($request->request->getBoolean('compile_success')) {
-                if ($judging->getJudgehost()->getHostname() === $hostname) {
-                    $judging->setOutputCompile(base64_decode($request->request->get('output_compile')));
+                // Don't overwrite a negative compilation result.
+                if ($judging->getOutputCompile() === null) {
+                    $judging
+                        ->setOutputCompile(base64_decode($request->request->get('output_compile')))
+                        ->setJudgehostName($hostname);
                     $this->em->flush();
                 }
+                // TODO: We already got a result, compare and handle this somehow.
             } else {
+                // TODO: Invalidate already created judgetasks.
                 $this->em->transactional(function () use (
                     $request,
                     $hostname,
                     $judging
                 ) {
-                    if ($judging->getJudgehost()->getHostname() === $hostname) {
+                    if ($judging->getOutputCompile() === null) {
                         $judging
                             ->setOutputCompile(base64_decode($request->request->get('output_compile')))
                             ->setResult(Judging::RESULT_COMPILER_ERROR)
+                            ->setJudgehostName($hostname)
                             ->setEndtime(Utils::now());
                         $this->em->flush();
                     }
+                    // TODO: Handle case where we already have a result.
 
                     $judgingId = $judging->getJudgingid();
                     $contestId = $judging->getSubmission()->getCid();
@@ -1529,6 +1543,16 @@ class JudgehostController extends AbstractFOSRestController
             // Bad luck, some other judgehost beat us to it.
             return [];
         }
+
+        // We got at least one, let's update the starttime of the corresponding judging if haven't done so in the past.
+        $this->em->getConnection()->executeUpdate(
+            'UPDATE judging SET starttime = :starttime WHERE judgingid = :jobid AND starttime IS NULL',
+            [
+                ':starttime' => Utils::now(),
+                ':jobid' => $judgeTasks[0]->getJobId(),
+            ]
+        );
+
         if ($numUpdated == sizeof($judgeTasks)) {
             // We got everything, let's ship it!
             return $judgeTasks;
