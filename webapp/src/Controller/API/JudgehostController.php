@@ -608,8 +608,8 @@ class JudgehostController extends AbstractFOSRestController
     }
 
     /**
-     * Add an array of JudgingRuns. When relevant, finalize the judging.
-     * @Rest\Post("/add-judging-run/{hostname}/{judgingId<\d+>}")
+     * Add one JudgingRun. When relevant, finalize the judging.
+     * @Rest\Post("/add-judging-run/{hostname}/{judgeTaskId}")
      * @IsGranted("ROLE_JUDGEHOST")
      * @SWG\Response(
      *     response="200",
@@ -620,12 +620,6 @@ class JudgehostController extends AbstractFOSRestController
      *     in="path",
      *     type="string",
      *     description="The hostname of the judgehost that wants to add the judging run"
-     * )
-     * @SWG\Parameter(
-     *     name="judgingId",
-     *     in="path",
-     *     type="integer",
-     *     description="The ID of the judging to add a run to"
      * )
      * @SWG\Parameter(
      *     name="testcaseid",
@@ -676,9 +670,6 @@ class JudgehostController extends AbstractFOSRestController
      *     type="string",
      *     description="The (base64-encoded) metadata"
      * )
-     * @param Request $request
-     * @param string  $hostname
-     * @param int     $judgingId
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Doctrine\ORM\NoResultException
      * @throws \Doctrine\ORM\NonUniqueResultException
@@ -687,51 +678,44 @@ class JudgehostController extends AbstractFOSRestController
     public function addJudgingRunAction(
         Request $request,
         string $hostname,
-        int $judgingId
+        int $judgeTaskId
     ) {
-        if ($request->request->has('batch')) {
-            $this->addMultipleJudgingRuns($request, $hostname, $judgingId);
-        } else {
-            $required = [
-                'testcaseid',
-                'runresult',
-                'runtime',
-                'output_run',
-                'output_diff',
-                'output_error',
-                'output_system'
-            ];
+        $required = [
+            'runresult',
+            'runtime',
+            'output_run',
+            'output_diff',
+            'output_error',
+            'output_system'
+        ];
 
-            foreach ($required as $argument) {
-                if (!$request->request->has($argument)) {
-                    throw new BadRequestHttpException(
-                        sprintf("Argument '%s' is mandatory", $argument));
-                }
+        foreach ($required as $argument) {
+            if (!$request->request->has($argument)) {
+                throw new BadRequestHttpException(
+                    sprintf("Argument '%s' is mandatory", $argument));
             }
-
-            $testCaseId   = $request->request->get('testcaseid');
-            $runResult    = $request->request->get('runresult');
-            $runTime      = $request->request->get('runtime');
-            $outputRun    = $request->request->get('output_run');
-            $outputDiff   = $request->request->get('output_diff');
-            $outputError  = $request->request->get('output_error');
-            $outputSystem = $request->request->get('output_system');
-            $metadata     = $request->request->get('metadata');
-
-            /** @var Judgehost $judgehost */
-            $judgehost = $this->em->getRepository(Judgehost::class)->find($hostname);
-            if (!$judgehost) {
-                return;
-            }
-
-            /** @var Judging $judging */
-            $judging = $this->em->getRepository(Judging::class)->find($judgingId);
-            $this->addSingleJudgingRun($hostname, $judgingId, (int)$testCaseId, $runResult, $runTime, $judging,
-                                       $outputSystem, $outputError, $outputDiff, $outputRun, $metadata);
-            $judgehost = $this->em->getRepository(Judgehost::class)->find($hostname);
-            $judgehost->setPolltime(Utils::now());
-            $this->em->flush();
         }
+
+        $runResult    = $request->request->get('runresult');
+        $runTime      = $request->request->get('runtime');
+        $outputRun    = $request->request->get('output_run');
+        $outputDiff   = $request->request->get('output_diff');
+        $outputError  = $request->request->get('output_error');
+        $outputSystem = $request->request->get('output_system');
+        $metadata     = $request->request->get('metadata');
+
+        /** @var Judgehost $judgehost */
+        $judgehost = $this->em->getRepository(Judgehost::class)->find($hostname);
+        if (!$judgehost) {
+            // TODO: Are we really silently discarding the result when the judgehost is unknown?
+            return;
+        }
+
+        $this->addSingleJudgingRun($judgeTaskId, $hostname, $runResult, $runTime,
+                                   $outputSystem, $outputError, $outputDiff, $outputRun, $metadata);
+        $judgehost = $this->em->getRepository(Judgehost::class)->find($hostname);
+        $judgehost->setPolltime(Utils::now());
+        $this->em->flush();
     }
 
     /**
@@ -946,64 +930,50 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Add a single judging to a given judging run
-     * @param string  $hostname
-     * @param int     $judgingId
-     * @param int     $testCaseId
-     * @param string  $runResult
-     * @param string  $runTime
-     * @param Judging $judging
-     * @param string  $outputSystem
-     * @param string  $outputError
-     * @param string  $outputDiff
-     * @param string  $outputRun
-     * @param string  $metadata
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Doctrine\ORM\NoResultException
      * @throws \Doctrine\ORM\NonUniqueResultException
      * @throws \Doctrine\ORM\ORMException
      */
     private function addSingleJudgingRun(
+        int $judgeTaskId,
         string $hostname,
-        int $judgingId,
-        int $testCaseId,
         string $runResult,
         string $runTime,
-        Judging $judging,
         string $outputSystem,
         string $outputError,
         string $outputDiff,
         string $outputRun,
         string $metadata
     ) {
-        /** @var Testcase $testCase */
-        $testCase = $this->em->getRepository(Testcase::class)->find($testCaseId);
-
         $resultsRemap = $this->config->get('results_remap');
         $resultsPrio  = $this->config->get('results_prio');
 
         if (array_key_exists($runResult, $resultsRemap)) {
             $this->logger->info('Testcase %d remapping result %s -> %s',
-                                [ $testCaseId, $runResult, $resultsRemap[$runResult] ]);
+                                [ /*TODO*/42, $runResult, $resultsRemap[$runResult] ]);
             $runResult = $resultsRemap[$runResult];
         }
 
         $this->em->transactional(function () use (
+            $judgeTaskId,
             $runTime,
             $runResult,
-            $testCase,
-            $judging,
             $outputSystem,
             $outputError,
             $outputDiff,
             $outputRun,
             $metadata
         ) {
-            $judgingRun = new JudgingRun();
+            /** @var JudgingRun $judgingRun */
+            $judgingRun = $this->em->getRepository(JudgingRun::class)->findOneBy(
+                ['judgetaskid' => $judgeTaskId]);
+            if ($judgingRun === null) {
+                // TODO: What to do now?
+            }
             $judgingRunOutput = new JudgingRunOutput();
             $judgingRun->setOutput($judgingRunOutput);
             $judgingRun
-                ->setJudging($judging)
-                ->setTestcase($testCase)
                 ->setRunresult($runResult)
                 ->setRuntime($runTime)
                 ->setEndtime(Utils::now());
@@ -1014,8 +984,8 @@ class JudgehostController extends AbstractFOSRestController
                 ->setOutputSystem(base64_decode($outputSystem))
                 ->setMetadata(base64_decode($metadata));
 
+            $judging = $judgingRun->getJudging();
             $this->maybeUpdateActiveJudging($judging);
-            $this->em->persist($judgingRun);
             $this->em->flush();
 
             if ($judging->getValid()) {
@@ -1025,21 +995,12 @@ class JudgehostController extends AbstractFOSRestController
         });
 
         // Reload the testcase and judging, as EventLogService::log will clear the entity manager.
-        // For the judging, also load in the submission and some of it's relations
-        $testCase = $this->em->getRepository(Testcase::class)->find($testCaseId);
-        /** @var Judging $judging */
-        $judging  = $this->em->createQueryBuilder()
-            ->from(Judging::class, 'j')
-            ->join('j.submission', 's')
-            ->join('s.problem', 'p')
-            ->join('s.team', 't')
-            ->join('s.contest', 'c')
-            ->join('s.contest_problem', 'cp')
-            ->select('j, s, p, t, c')
-            ->where('j.judgingid = :judgingid')
-            ->setParameter(':judgingid', $judgingId)
-            ->getQuery()
-            ->getOneOrNullResult();
+        // For the judging, also load in the submission and some of it's relations.
+        /** @var JudgingRun $judgingRun */
+        $judgingRun = $this->em->getRepository(JudgingRun::class)->findOneBy(
+            ['judgetaskid' => $judgeTaskId]);
+        $testCase = $judgingRun->getTestcase();
+        $judging = $judgingRun->getJudging();
 
         // result of this judging_run has been stored. now check whether
         // we're done or if more testcases need to be judged.
@@ -1051,7 +1012,7 @@ class JudgehostController extends AbstractFOSRestController
             ->select('r')
             ->andWhere('r.judgingid = :judgingid')
             ->orderBy('t.rank')
-            ->setParameter(':judgingid', $judgingId)
+            ->setParameter(':judgingid', $judging->getJudgingid())
             ->getQuery()
             ->getResult();
 
@@ -1117,8 +1078,7 @@ class JudgehostController extends AbstractFOSRestController
                     }
                 }
 
-                $this->dj->auditlog('judging', $judgingId, 'judged', $result,
-                                                 $hostname);
+                $this->dj->auditlog('judging', $judging->getJudgingid(), 'judged', $result, $hostname);
 
                 $justFinished = true;
             }
