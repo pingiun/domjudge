@@ -572,6 +572,9 @@ class JudgehostController extends AbstractFOSRestController
                         ->setOutputCompile(base64_decode($request->request->get('output_compile')))
                         ->setJudgehostName($hostname);
                     $this->em->flush();
+
+                    $this->eventLogService->log('judging', $judging->getJudgingid(),
+                        EventLogService::ACTION_CREATE, $judging->getContest()->getCid());
                 }
                 // TODO: We already got a result, compare and handle this somehow.
             } else {
@@ -579,7 +582,8 @@ class JudgehostController extends AbstractFOSRestController
                 $this->em->transactional(function () use (
                     $request,
                     $hostname,
-                    $judging
+                    $judging,
+                    $query
                 ) {
                     if ($judging->getOutputCompile() === null) {
                         $judging
@@ -588,6 +592,14 @@ class JudgehostController extends AbstractFOSRestController
                             ->setJudgehostName($hostname)
                             ->setEndtime(Utils::now());
                         $this->em->flush();
+
+                        $this->eventLogService->log('judging', $judging->getJudgingid(),
+                            EventLogService::ACTION_CREATE, $judging->getContest()->getCid());
+
+                        // As EventLogService::log() will clear the entity manager, so the judging has
+                        // now become detached. We will have to reload it
+                        /** @var Judging $judging */
+                        $judging = $query->getOneOrNullResult();
                     }
                     // TODO: Handle case where we already have a result.
 
