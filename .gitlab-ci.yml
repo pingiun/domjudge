@@ -131,6 +131,7 @@ integration:
   artifacts:
     when: always
     paths:
+      - db
       - misc-tools/icpctools/dj-events.json
       - misc-tools/icpctools/dj-scoreboard.json
       - misc-tools/icpctools/cds-events.json

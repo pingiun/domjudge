@@ -1,5 +1,8 @@
 #!/bin/bash
 
+artifactdb="$(pwd)/db"
+mkdir -p "$artifactdb"
+
 shopt -s expand_aliases
 alias trace_on='set -x'
 alias trace_off='{ set +x; } 2>/dev/null'
@@ -181,6 +184,10 @@ if [ $NUMNOTVERIFIED -ne 2 ] || [ $NUMNOMAGIC -ne 0 ] || [ $NUMSUBS -gt $((NUMVE
 	echo "Of these $NUMNOMAGIC do not have the EXPECTED_RESULTS string (should be 0)."
 	curl $CURLOPTS "http://localhost/domjudge/jury/judging-verifier?verify_multiple=1"
 	section_end error
+
+	mysqldump domjudge > "$artifactdb/db.sql"
+	cp /tmp/judgedaemon.log "$artifactdb/"
+	cp /var/log/nginx/domjudge.log "$artifactdb/"
 
 	section_start logfiles "All the more or less useful logfiles"
 	for i in /opt/domjudge/judgehost/judgings/*/*/*/*/*/compile.out; do
